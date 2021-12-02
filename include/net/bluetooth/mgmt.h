@@ -837,6 +837,22 @@ struct mgmt_cp_add_adv_patterns_monitor_rssi {
 	struct mgmt_adv_pattern patterns[];
 } __packed;
 #define MGMT_ADD_ADV_PATTERNS_MONITOR_RSSI_SIZE	8
+#define MGMT_OP_SET_MESH		0x0057
+struct mgmt_cp_set_mesh {
+	__u8   enable;
+	__u8   active;
+	__u8   ad_types[];
+} __packed;
+#define MGMT_SET_MESH_SIZE		2
+
+#define MGMT_OP_MESH_SEND		0x0058
+struct mgmt_cp_mesh_send {
+	__u32  instant;
+	__u16  delay;
+	__u8   cnt;
+	__u8   data[];
+} __packed;
+#define MGMT_MESH_SEND_SIZE		7
 
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {
@@ -1119,4 +1135,14 @@ struct mgmt_ev_adv_monitor_device_found {
 struct mgmt_ev_adv_monitor_device_lost {
 	__le16 monitor_handle;
 	struct mgmt_addr_info addr;
+} __packed;
+
+#define MGMT_EV_MESH_DEVICE_FOUND	0x0031
+struct mgmt_ev_mesh_device_found {
+	struct mgmt_addr_info addr;
+	__s8	rssi;
+	__le64	instant;
+	__le32	flags;
+	__le16	eir_len;
+	__u8	eir[];
 } __packed;
