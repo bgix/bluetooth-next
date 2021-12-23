@@ -1029,14 +1029,15 @@ static int send_settings_rsp(struct sock *sk, u16 opcode, struct hci_dev *hdev);
 static int mesh_send_done_sync(struct hci_dev *hdev, void *data)
 {
 	struct mgmt_pending_cmd *cmd = data;
+	struct mgmt_cp_mesh_send *cp = cmd->param;
+	struct sock *sk = cmd->sk;
+	u8 ref = cp->ref;
 
 	bt_dev_dbg(hdev, "Send Mesh Packet Done");
 	hci_disable_advertising_sync(hdev);
 	hci_dev_clear_flag(hdev, HCI_MESH_SENDING);
-	send_settings_rsp(cmd->sk, MGMT_OP_SET_MESH, hdev);
 	mgmt_pending_remove(cmd);
-
-	return 0;
+	return mgmt_cmd_complete(sk, hdev->id, MGMT_OP_MESH_SEND, 0, &ref, 1);
 }
 
 static void mesh_send_done(struct work_struct *work)
@@ -2075,6 +2076,7 @@ static void set_mesh_complete(struct hci_dev *hdev, void *data, int err)
 	struct mgmt_pending_cmd *cmd = data;
 	u8 status = mgmt_status(err);
 	struct sock *sk = cmd->sk;
+	u8 slots;
 
 	if (status) {
 		mgmt_pending_foreach(MGMT_OP_SET_MESH, hdev, cmd_status_rsp,
@@ -2082,7 +2084,13 @@ static void set_mesh_complete(struct hci_dev *hdev, void *data, int err)
 		return;
 	}
 
-	send_settings_rsp(sk, MGMT_OP_SET_MESH, hdev);
+	if (hci_dev_test_flag(hdev, HCI_MESH))
+		slots = MGMT_MESH_SLOTS;
+	else
+		slots = 0;
+
+	mgmt_pending_remove(cmd);
+	mgmt_cmd_complete(sk, hdev->id, MGMT_OP_SET_MESH, 0, &slots, 1);
 }
 
 static int set_mesh_sync(struct hci_dev *hdev, void *data)
@@ -2141,7 +2149,14 @@ static int set_mesh(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 						set_mesh_complete);
 
 
-	send_settings_rsp(sk, MGMT_OP_SET_MESH, hdev);
+	if (err < 0) {
+		err = mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_MESH,
+						MGMT_STATUS_FAILED);
+
+		if (cmd)
+			mgmt_pending_remove(cmd);
+	}
+
 	hci_dev_unlock(hdev);
 	return err;
 }
@@ -9878,6 +9893,72 @@ static void mgmt_adv_monitor_device_found(struct hci_dev *hdev,
 		kfree_skb(advmon_skb);
 }
 
+static void mesh_device_found(struct hci_dev *hdev, bdaddr_t *bdaddr,
+		       u8 addr_type, s8 rssi, u32 flags, u8 *eir, u16 eir_len,
+		       u8 *scan_rsp, u8 scan_rsp_len, u32 instant)
+{
+	struct sk_buff *skb;
+	struct mgmt_ev_mesh_device_found *ev;
+	int i, j;
+
+	if (!hdev->mesh_ad_types[0])
+		goto accepted;
+
+	/* Scan for requested AD types */
+	if (eir_len > 0) {
+		for (i = 0; i + 1 < eir_len; i += eir[i] + 1) {
+			for (j = 0; j < sizeof(hdev->mesh_ad_types); j++) {
+				if (!hdev->mesh_ad_types[j])
+					break;
+
+				if (hdev->mesh_ad_types[j] == eir[i + 1])
+					goto accepted;
+			}
+		}
+	}
+
+	if (scan_rsp_len > 0) {
+		for (i = 0; i + 1 < scan_rsp_len; i += scan_rsp[i] + 1) {
+			for (j = 0; j < sizeof(hdev->mesh_ad_types); j++) {
+				if (!hdev->mesh_ad_types[j])
+					break;
+
+				if (hdev->mesh_ad_types[j] == scan_rsp[i + 1])
+					goto accepted;
+			}
+		}
+	}
+
+	return;
+
+
+accepted:
+	skb = mgmt_alloc_skb(hdev, MGMT_EV_MESH_DEVICE_FOUND,
+			     sizeof(*ev) + eir_len + scan_rsp_len);
+	if (!skb)
+		return;
+
+	ev = skb_put(skb, sizeof(*ev));
+
+	bacpy(&ev->addr.bdaddr, bdaddr);
+	ev->addr.type = link_to_bdaddr(LE_LINK, addr_type);
+	ev->rssi = rssi;
+	ev->flags = cpu_to_le32(flags);
+	ev->instant = instant;
+
+	if (eir_len > 0)
+		/* Copy EIR or advertising data into event */
+		skb_put_data(skb, eir, eir_len);
+
+	if (scan_rsp_len > 0)
+		/* Append scan response data to event */
+		skb_put_data(skb, scan_rsp, scan_rsp_len);
+
+	ev->eir_len = cpu_to_le16(eir_len + scan_rsp_len);
+
+	mgmt_event_skb(skb, NULL);
+}
+
 void mgmt_device_found(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 link_type,
 		       u8 addr_type, u8 *dev_class, s8 rssi, u32 flags,
 		       u8 *eir, u16 eir_len, u8 *scan_rsp, u8 scan_rsp_len,
@@ -9886,6 +9967,10 @@ void mgmt_device_found(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 link_type,
 	struct sk_buff *skb;
 	struct mgmt_ev_device_found *ev;
 	bool report_device = hci_discovery_active(hdev);
+
+	if (hci_dev_test_flag(hdev, HCI_MESH) && link_type == LE_LINK)
+		mesh_device_found(hdev, bdaddr, addr_type, rssi, flags,
+				eir, eir_len, scan_rsp, scan_rsp_len, instant);
 
 	/* Don't send events for a non-kernel initiated discovery. With
 	 * LE one exception is if we have pend_le_reports > 0 in which

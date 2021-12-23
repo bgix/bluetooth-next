@@ -844,9 +844,11 @@ struct mgmt_cp_set_mesh {
 	__u8   ad_types[];
 } __packed;
 #define MGMT_SET_MESH_SIZE		2
+#define MGMT_MESH_SLOTS			3
 
 #define MGMT_OP_MESH_SEND		0x0058
 struct mgmt_cp_mesh_send {
+	__u8   ref;
 	__u32  instant;
 	__u16  delay;
 	__u8   cnt;

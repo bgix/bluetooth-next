@@ -6218,7 +6218,7 @@ static void hci_le_ext_adv_report_evt(struct hci_dev *hdev, void *data,
 			process_adv_report(hdev, legacy_evt_type, &info->bdaddr,
 					   info->bdaddr_type, NULL, 0,
 					   info->rssi, info->data, info->length,
-					   !(evt_type & LE_EXT_ADV_LEGACY_PDU)
+					   !(evt_type & LE_EXT_ADV_LEGACY_PDU),
 					   false, instant);
 		}
 	}
