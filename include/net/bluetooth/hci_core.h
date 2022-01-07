@@ -159,9 +159,6 @@ enum hci_conn_flags {
 	__HCI_CONN_NUM_FLAGS,
 };
 
-/* Make sure number of flags doesn't exceed sizeof(current_flags) */
-static_assert(__HCI_CONN_NUM_FLAGS < 32);
-
 struct bdaddr_list_with_flags {
 	struct list_head list;
 	bdaddr_t bdaddr;
@@ -1881,5 +1878,8 @@ void hci_copy_identity_address(struct hci_dev *hdev, bdaddr_t *bdaddr,
 #define LOCAL_CODEC_SCO_MASK	BIT(1)
 
 #define TRANSPORT_TYPE_MAX	0x04
+
+/* Make sure number of flags doesn't exceed sizeof(current_flags) */
+static_assert(__HCI_CONN_NUM_FLAGS < 32);
 
 #endif /* __HCI_CORE_H */
