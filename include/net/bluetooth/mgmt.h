@@ -837,24 +837,33 @@ struct mgmt_cp_add_adv_patterns_monitor_rssi {
 	struct mgmt_adv_pattern patterns[];
 } __packed;
 #define MGMT_ADD_ADV_PATTERNS_MONITOR_RSSI_SIZE	8
-#define MGMT_OP_SET_MESH		0x0057
+#define MGMT_OP_SET_MESH_RECEIVER		0x0057
 struct mgmt_cp_set_mesh {
 	__u8   enable;
-	__u8   active;
+	__le16 window;
+	__le16 period;
 	__u8   ad_types[];
 } __packed;
-#define MGMT_SET_MESH_SIZE		2
-#define MGMT_MESH_SLOTS			3
+#define MGMT_SET_MESH_RECEIVER_SIZE	5
 
-#define MGMT_OP_MESH_SEND		0x0058
+#define MGMT_OP_MESH_READ_FEATURES	0x0058
+#define MGMT_MESH_READ_FEATURES_SIZE	0
+
+#define MGMT_OP_MESH_SEND		0x0059
 struct mgmt_cp_mesh_send {
-	__u8   ref;
+	struct mgmt_addr_info addr;
 	__u32  instant;
 	__u16  delay;
 	__u8   cnt;
 	__u8   data[];
 } __packed;
-#define MGMT_MESH_SEND_SIZE		7
+#define MGMT_MESH_SEND_SIZE		14
+
+#define MGMT_OP_MESH_SEND_CANCEL	0x005A
+struct mgmt_cp_mesh_send_cancel {
+	__u16  handle;
+} __packed;
+#define MGMT_MESH_SEND_CANCEL_SIZE	2
 
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {
@@ -1148,3 +1157,11 @@ struct mgmt_ev_mesh_device_found {
 	__le16	eir_len;
 	__u8	eir[];
 } __packed;
+
+
+#define MGMT_EV_MESH_PACKET_CMPLT		0x0032
+struct mgmt_ev_mesh_pkt_cmplt {
+	__le16	handle;
+} __packed;
+
+

@@ -129,8 +129,10 @@ static const u16 mgmt_commands[] = {
 	MGMT_OP_ADD_EXT_ADV_PARAMS,
 	MGMT_OP_ADD_EXT_ADV_DATA,
 	MGMT_OP_ADD_ADV_PATTERNS_MONITOR_RSSI,
-	MGMT_OP_SET_MESH,
+	MGMT_OP_SET_MESH_RECEIVER,
+	MGMT_OP_MESH_READ_FEATURES,
 	MGMT_OP_MESH_SEND,
+	MGMT_OP_MESH_SEND_CANCEL,
 };
 
 static const u16 mgmt_events[] = {
@@ -1031,7 +1033,7 @@ static int mesh_send_done_sync(struct hci_dev *hdev, void *data)
 	struct mgmt_pending_cmd *cmd = data;
 	struct mgmt_cp_mesh_send *cp = cmd->param;
 	struct sock *sk = cmd->sk;
-	u8 ref = cp->ref;
+	u16 ref = cp->ref;
 
 	bt_dev_dbg(hdev, "Send Mesh Packet Done");
 	hci_disable_advertising_sync(hdev);
@@ -2079,18 +2081,19 @@ static void set_mesh_complete(struct hci_dev *hdev, void *data, int err)
 	u8 slots;
 
 	if (status) {
-		mgmt_pending_foreach(MGMT_OP_SET_MESH, hdev, cmd_status_rsp,
-							&status);
+		mgmt_pending_foreach(MGMT_OP_SET_MESH_RECEIVER, hdev,
+						cmd_status_rsp, &status);
 		return;
 	}
 
 	if (hci_dev_test_flag(hdev, HCI_MESH))
-		slots = MGMT_MESH_SLOTS;
+		slots = 1;
 	else
 		slots = 0;
 
 	mgmt_pending_remove(cmd);
-	mgmt_cmd_complete(sk, hdev->id, MGMT_OP_SET_MESH, 0, &slots, 1);
+	mgmt_cmd_complete(sk, hdev->id, MGMT_OP_SET_MESH_RECEIVER, 0,
+								&slots, 1);
 }
 
 static int set_mesh_sync(struct hci_dev *hdev, void *data)
@@ -2131,17 +2134,17 @@ static int set_mesh(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (!lmp_le_capable(hdev))
-		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_MESH,
+		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_MESH_RECEIVER,
 				       MGMT_STATUS_NOT_SUPPORTED);
 
 	if ((cp->enable != 0x00 && cp->enable != 0x01) ||
 				(cp->active != 0x00 && cp->active != 0x01))
-		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_MESH,
+		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_MESH_RECEIVER,
 				       MGMT_STATUS_INVALID_PARAMS);
 
 	hci_dev_lock(hdev);
 
-	cmd = mgmt_pending_add(sk, MGMT_OP_SET_MESH, hdev, data, len);
+	cmd = mgmt_pending_add(sk, MGMT_OP_SET_MESH_RECEIVER, hdev, data, len);
 	if (!cmd)
 		err = -ENOMEM;
 	else
@@ -2150,7 +2153,7 @@ static int set_mesh(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 
 
 	if (err < 0) {
-		err = mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_MESH,
+		err = mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_MESH_RECEIVER,
 						MGMT_STATUS_FAILED);
 
 		if (cmd)
@@ -2216,8 +2219,7 @@ static int mesh_send(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 
 	hci_dev_set_flag(hdev, HCI_MESH_SENDING);
 
-	cmd = mgmt_pending_add(sk, MGMT_OP_MESH_SEND, hdev, send->data,
-				len - sizeof(struct mgmt_cp_mesh_send));
+	cmd = mgmt_pending_add(sk, MGMT_OP_MESH_SEND, hdev, send, len);
 
 	if (!cmd)
 		err = -ENOMEM;
@@ -2226,6 +2228,7 @@ static int mesh_send(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 						mesh_send_complete);
 
 	if (err < 0) {
+		/* Switch to result with handle */
 		err = mgmt_cmd_status(sk, hdev->id, MGMT_OP_MESH_SEND,
 						MGMT_STATUS_FAILED);
 
@@ -8961,10 +8964,12 @@ static const struct hci_mgmt_handler mgmt_handlers[] = {
 						HCI_MGMT_VAR_LEN },
 	{ add_adv_patterns_monitor_rssi,
 				   MGMT_ADD_ADV_PATTERNS_MONITOR_RSSI_SIZE },
-	{ set_mesh,                MGMT_SET_MESH_SIZE,
+	{ set_mesh,                MGMT_SET_MESH_RECEIVER_SIZE,
 						HCI_MGMT_VAR_LEN },
+	{ mesh_features,           MGMT_MESH_READ_FEATURES_SIZE },
 	{ mesh_send,               MGMT_MESH_SEND_SIZE,
 						HCI_MGMT_VAR_LEN },
+	{ mesh_send_cancel,        MGMT_MESH_SEND_CANCEL_SIZE },
 };
 
 void mgmt_index_added(struct hci_dev *hdev)

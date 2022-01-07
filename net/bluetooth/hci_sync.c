@@ -1149,7 +1149,7 @@ int hci_mesh_send_sync(struct hci_dev *hdev, u8 *data, u8 len)
 {
 	struct hci_cp_le_set_adv_data cp_data;
 	struct hci_cp_le_set_adv_param cp_param;
-	u8 own_addr_type, enable = 0x00;
+	struct mgmt_cp_mesh_send *send = data; u8 own_addr_type, enable = 0x00;
 	int err;
 
 	memset(&cp_data, 0, sizeof(cp_data));
