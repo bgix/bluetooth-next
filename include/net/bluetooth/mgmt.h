@@ -842,6 +842,7 @@ struct mgmt_cp_set_mesh {
 	__u8   enable;
 	__le16 window;
 	__le16 period;
+	__u8   num_ad_types;
 	__u8   ad_types[];
 } __packed;
 #define MGMT_SET_MESH_RECEIVER_SIZE	5
@@ -852,8 +853,8 @@ struct mgmt_cp_set_mesh {
 #define MGMT_OP_MESH_SEND		0x0059
 struct mgmt_cp_mesh_send {
 	struct mgmt_addr_info addr;
-	__u32  instant;
-	__u16  delay;
+	__le64  instant;
+	__le16  delay;
 	__u8   cnt;
 	__u8   data[];
 } __packed;
@@ -861,7 +862,7 @@ struct mgmt_cp_mesh_send {
 
 #define MGMT_OP_MESH_SEND_CANCEL	0x005A
 struct mgmt_cp_mesh_send_cancel {
-	__u16  handle;
+	__u8  handle;
 } __packed;
 #define MGMT_MESH_SEND_CANCEL_SIZE	2
 
@@ -1161,7 +1162,7 @@ struct mgmt_ev_mesh_device_found {
 
 #define MGMT_EV_MESH_PACKET_CMPLT		0x0032
 struct mgmt_ev_mesh_pkt_cmplt {
-	__le16	handle;
+	__u8	handle;
 } __packed;
 
 

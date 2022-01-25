@@ -1145,11 +1145,12 @@ static int hci_set_ext_adv_data_sync(struct hci_dev *hdev, u8 instance)
 				     HCI_CMD_TIMEOUT);
 }
 
-int hci_mesh_send_sync(struct hci_dev *hdev, u8 *data, u8 len)
+int hci_mesh_send_sync(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 bdaddr_type,
+							u8 *data, u8 len)
 {
 	struct hci_cp_le_set_adv_data cp_data;
 	struct hci_cp_le_set_adv_param cp_param;
-	struct mgmt_cp_mesh_send *send = data; u8 own_addr_type, enable = 0x00;
+	u8 own_addr_type, enable = 0x00;
 	int err;
 
 	memset(&cp_data, 0, sizeof(cp_data));

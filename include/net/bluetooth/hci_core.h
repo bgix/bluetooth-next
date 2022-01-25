@@ -355,6 +355,7 @@ struct hci_dev {
 	__u8		le_num_of_adv_sets;
 	__u8		le_states[8];
 	__u8		mesh_ad_types[16];
+	__u8		mesh_send_ref;
 	__u8		commands[64];
 	__u8		hci_ver;
 	__u16		hci_rev;

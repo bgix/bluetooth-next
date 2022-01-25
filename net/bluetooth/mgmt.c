@@ -210,6 +210,7 @@ static const u16 mgmt_untrusted_events[] = {
 	MGMT_EV_EXP_FEATURE_CHANGED,
 };
 
+#define MESH_HANDLES_MAX	3
 #define CACHE_TIMEOUT	msecs_to_jiffies(2 * 1000)
 
 #define ZERO_KEY "\x00\x00\x00\x00\x00\x00\x00\x00" \
@@ -1028,31 +1029,60 @@ static void rpa_expired(struct work_struct *work)
 }
 
 static int send_settings_rsp(struct sock *sk, u16 opcode, struct hci_dev *hdev);
+
+static void mesh_send_complete(struct hci_dev *hdev,
+						struct mgmt_pending_cmd *cmd)
+{
+	__u8 handle = (u8)((long) cmd->user_data);
+
+	mgmt_event(MGMT_EV_MESH_PACKET_CMPLT, hdev, &handle, sizeof(handle),
+								cmd->sk);
+
+	mgmt_pending_remove(cmd);
+}
+
 static int mesh_send_done_sync(struct hci_dev *hdev, void *data)
 {
-	struct mgmt_pending_cmd *cmd = data;
-	struct mgmt_cp_mesh_send *cp = cmd->param;
-	struct sock *sk = cmd->sk;
-	u16 ref = cp->ref;
+	struct mgmt_pending_cmd *cmd;
 
+	hci_dev_clear_flag(hdev, HCI_MESH_SENDING);
 	bt_dev_dbg(hdev, "Send Mesh Packet Done");
 	hci_disable_advertising_sync(hdev);
-	hci_dev_clear_flag(hdev, HCI_MESH_SENDING);
-	mgmt_pending_remove(cmd);
-	return mgmt_cmd_complete(sk, hdev->id, MGMT_OP_MESH_SEND, 0, &ref, 1);
+	cmd = pending_find(MGMT_OP_MESH_SEND, hdev);
+
+	if (cmd)
+		mesh_send_complete(hdev, cmd);
+
+	return 0;
+}
+
+static int mesh_send_sync(struct hci_dev *hdev, void *data);
+static void mesh_send_start_complete(struct hci_dev *hdev, void *data, int err);
+static void mesh_next(struct hci_dev *hdev, void *data, int err)
+{
+	struct mgmt_pending_cmd *cmd = pending_find(MGMT_OP_MESH_SEND, hdev);
+
+	if (!cmd)
+		return;
+
+	err = hci_cmd_sync_queue(hdev, mesh_send_sync, cmd,
+			mesh_send_start_complete);
+
+	if (err < 0)
+		mesh_send_complete(hdev, cmd);
+	else
+		hci_dev_set_flag(hdev, HCI_MESH_SENDING);
 }
 
 static void mesh_send_done(struct work_struct *work)
 {
-	struct mgmt_pending_cmd *cmd;
 	struct hci_dev *hdev = container_of(work, struct hci_dev,
 					    mesh_send_done.work);
 
 	if (!hci_dev_test_flag(hdev, HCI_MESH_SENDING))
 		return;
 
-	cmd = pending_find(MGMT_OP_MESH_SEND, hdev);
-	hci_cmd_sync_queue(hdev, mesh_send_done_sync, cmd, NULL);
+	hci_cmd_sync_queue(hdev, mesh_send_done_sync, NULL, mesh_next);
 }
 
 static void mgmt_init_hdev(struct sock *sk, struct hci_dev *hdev)
@@ -2036,7 +2066,6 @@ static int set_le_sync(struct hci_dev *hdev, void *data)
 	int err;
 
 	hci_dev_clear_flag(hdev, HCI_MESH);
-	hci_dev_clear_flag(hdev, HCI_MESH_ACTIVE);
 
 	if (!val) {
 		if (hci_dev_test_flag(hdev, HCI_LE_ADV))
@@ -2103,23 +2132,17 @@ static int set_mesh_sync(struct hci_dev *hdev, void *data)
 	size_t len = cmd->param_len;
 
 	memset(hdev->mesh_ad_types, 0, sizeof(hdev->mesh_ad_types));
-	hci_dev_clear_flag(hdev, HCI_MESH_ACTIVE);
 
-	if (cp->enable) {
+	if (cp->enable)
 		hci_dev_set_flag(hdev, HCI_MESH);
-
-		if (cp->active)
-			hci_dev_set_flag(hdev, HCI_MESH_ACTIVE);
-
-	} else
+	else
 		hci_dev_clear_flag(hdev, HCI_MESH);
 
-	/* Truncate the passed ad_type list if too long */
-	if (len - sizeof(*cp) <= sizeof(hdev->mesh_ad_types))
-		memcpy(hdev->mesh_ad_types, cp->ad_types, len - sizeof(*cp));
-	else
-		memcpy(hdev->mesh_ad_types, cp->ad_types,
-						sizeof(hdev->mesh_ad_types));
+	len -= sizeof(*cp);
+
+	/* If filters don't fit, forward all adv pkts */
+	if (len <= sizeof(hdev->mesh_ad_types))
+		memcpy(hdev->mesh_ad_types, cp->ad_types, len);
 
 	hci_update_passive_scan_sync(hdev);
 	return 0;
@@ -2137,8 +2160,7 @@ static int set_mesh(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_MESH_RECEIVER,
 				       MGMT_STATUS_NOT_SUPPORTED);
 
-	if ((cp->enable != 0x00 && cp->enable != 0x01) ||
-				(cp->active != 0x00 && cp->active != 0x01))
+	if (cp->enable != 0x00 && cp->enable != 0x01)
 		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_MESH_RECEIVER,
 				       MGMT_STATUS_INVALID_PARAMS);
 
@@ -2164,7 +2186,7 @@ static int set_mesh(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 	return err;
 }
 
-static void mesh_send_complete(struct hci_dev *hdev, void *data, int err)
+static void mesh_send_start_complete(struct hci_dev *hdev, void *data, int err)
 {
 	struct mgmt_pending_cmd *cmd = data;
 	struct mgmt_cp_mesh_send *cp = cmd->param;
@@ -2175,8 +2197,9 @@ static void mesh_send_complete(struct hci_dev *hdev, void *data, int err)
 
 	if (mgmt_err) {
 		hci_dev_clear_flag(hdev, HCI_MESH_SENDING);
-		mgmt_cmd_status(cmd->sk, hdev->id, MGMT_OP_MESH_SEND, mgmt_err);
-		mgmt_pending_remove(cmd);
+		//mgmt_cmd_status(cmd->sk, hdev->id, MGMT_OP_MESH_SEND, mgmt_err);
+		/* Send Complete Error Code for handle */
+		mesh_send_complete(hdev, cmd);
 		return;
 	}
 
@@ -2188,17 +2211,88 @@ static void mesh_send_complete(struct hci_dev *hdev, void *data, int err)
 static int mesh_send_sync(struct hci_dev *hdev, void *data)
 {
 	struct mgmt_pending_cmd *cmd = data;
+	struct mgmt_cp_mesh_send *send = cmd->param;
+	u8 len = cmd->param_len - sizeof(*send);
 
 	if (hci_dev_test_flag(hdev, HCI_LE_ADV))
 		return MGMT_STATUS_BUSY;
 
-	return hci_mesh_send_sync(hdev, cmd->param, cmd->param_len);
+	return hci_mesh_send_sync(hdev, &send->addr.bdaddr, send->addr.type,
+							send->data, len);
+}
+
+static void send_count(struct mgmt_pending_cmd *cmd, void *data)
+{
+	u8 handle = (u8)((long)cmd->user_data);
+	u8 *features = data;
+
+	if (features[1] >= features[0])
+		return;
+
+	features[1]++;
+	features[1 + features[1]] = handle;
+}
+
+static int mesh_features(struct sock *sk, struct hci_dev *hdev,
+						void *data, u16 len)
+{
+	u8 features[MESH_HANDLES_MAX + 2] = {MESH_HANDLES_MAX, 0};
+
+	if (!hci_dev_test_flag(hdev, HCI_LE_ENABLED))
+		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_MESH_READ_FEATURES,
+				       MGMT_STATUS_REJECTED);
+
+	hci_dev_lock(hdev);
+
+	mgmt_pending_foreach(MGMT_OP_MESH_SEND, hdev, send_count, features);
+	mgmt_cmd_complete(sk, hdev->id, MGMT_OP_MESH_READ_FEATURES, 0, features,
+			features[1] + 2);
+
+	hci_dev_unlock(hdev);
+	return 0;
+}
+
+static int mesh_send_cancel(struct sock *sk, struct hci_dev *hdev,
+						void *data, u16 len)
+{
+	struct mgmt_cp_mesh_send_cancel *cancel = data;
+	struct mgmt_pending_cmd *cmd;
+
+	if (!hci_dev_test_flag(hdev, HCI_LE_ENABLED))
+		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_MESH_SEND_CANCEL,
+				       MGMT_STATUS_REJECTED);
+
+	hci_dev_lock(hdev);
+
+	if (!cancel->handle) {
+		do {
+			cmd = pending_find(MGMT_OP_MESH_SEND, hdev);
+
+			if (cmd)
+				mesh_send_complete(hdev, cmd);
+		} while (cmd);
+	} else {
+		void *cancel_ptr = (void *) ((long)cancel->handle);
+
+		cmd = mgmt_pending_find_data(HCI_CHANNEL_CONTROL,
+						MGMT_OP_MESH_SEND, hdev,
+						cancel_ptr);
+
+		if (cmd)
+			mesh_send_complete(hdev, cmd);
+	}
+
+	mgmt_cmd_complete(sk, hdev->id, MGMT_OP_MESH_SEND_CANCEL, 0, NULL, 0);
+
+	hci_dev_unlock(hdev);
+	return 0;
 }
 
 static int mesh_send(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 {
 	struct mgmt_pending_cmd *cmd;
 	struct mgmt_cp_mesh_send *send = data;
+	bool sending;
 	int err = 0;
 
 	bt_dev_dbg(hdev, "Send Mesh Packet Start...");
@@ -2217,23 +2311,37 @@ static int mesh_send(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 	}
 
 
-	hci_dev_set_flag(hdev, HCI_MESH_SENDING);
-
-	cmd = mgmt_pending_add(sk, MGMT_OP_MESH_SEND, hdev, send, len);
+	sending = hci_dev_test_flag(hdev, HCI_MESH_SENDING);
+	if (sending)
+		cmd = mgmt_pending_add(sk, MGMT_OP_MESH_SEND, hdev, send, len);
 
 	if (!cmd)
 		err = -ENOMEM;
-	else
+	else if (!sending)
 		err = hci_cmd_sync_queue(hdev, mesh_send_sync, cmd,
-						mesh_send_complete);
+						mesh_send_start_complete);
 
 	if (err < 0) {
-		/* Switch to result with handle */
 		err = mgmt_cmd_status(sk, hdev->id, MGMT_OP_MESH_SEND,
 						MGMT_STATUS_FAILED);
 
-		if (cmd)
-			mgmt_pending_remove(cmd);
+		if (cmd) {
+			if (sending)
+				mgmt_pending_remove(cmd);
+		}
+	} else {
+		u8 handle;
+
+		hci_dev_set_flag(hdev, HCI_MESH_SENDING);
+
+		/* Switch to result with handle */
+		hdev->mesh_send_ref++;
+		if (!hdev->mesh_send_ref)
+			hdev->mesh_send_ref++;
+
+		handle = hdev->mesh_send_ref;
+		cmd->user_data = (void *) ((long)handle);
+		mgmt_cmd_complete(sk, hdev->id, MGMT_OP_MESH_SEND, 0, &handle, 1);
 	}
 
 done:
