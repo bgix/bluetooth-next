@@ -845,7 +845,7 @@ struct mgmt_cp_set_mesh {
 	__u8   num_ad_types;
 	__u8   ad_types[];
 } __packed;
-#define MGMT_SET_MESH_RECEIVER_SIZE	5
+#define MGMT_SET_MESH_RECEIVER_SIZE	6
 
 #define MGMT_OP_MESH_READ_FEATURES	0x0058
 #define MGMT_MESH_READ_FEATURES_SIZE	0
@@ -858,13 +858,13 @@ struct mgmt_cp_mesh_send {
 	__u8   cnt;
 	__u8   data[];
 } __packed;
-#define MGMT_MESH_SEND_SIZE		14
+#define MGMT_MESH_SEND_SIZE		18
 
 #define MGMT_OP_MESH_SEND_CANCEL	0x005A
 struct mgmt_cp_mesh_send_cancel {
 	__u8  handle;
 } __packed;
-#define MGMT_MESH_SEND_CANCEL_SIZE	2
+#define MGMT_MESH_SEND_CANCEL_SIZE	1
 
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {

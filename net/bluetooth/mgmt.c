@@ -2292,19 +2292,23 @@ static int mesh_send(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 {
 	struct mgmt_pending_cmd *cmd;
 	struct mgmt_cp_mesh_send *send = data;
+	u8 features[MESH_HANDLES_MAX + 2] = {MESH_HANDLES_MAX, 0};
 	bool sending;
 	int err = 0;
 
 	bt_dev_dbg(hdev, "Send Mesh Packet Start...");
 
-	if (!hci_dev_test_flag(hdev, HCI_MESH) || len <= MGMT_MESH_SEND_SIZE ||
+	if (!hci_dev_test_flag(hdev, HCI_LE_ENABLED) ||
+					len <= MGMT_MESH_SEND_SIZE ||
 					len > (MGMT_MESH_SEND_SIZE + 29))
 		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_MESH_SEND,
 				       MGMT_STATUS_REJECTED);
 
 	hci_dev_lock(hdev);
-	if (hci_dev_test_flag(hdev, HCI_MESH_SENDING) ||
-				hci_dev_test_flag(hdev, HCI_LE_ADV)) {
+
+	mgmt_pending_foreach(MGMT_OP_MESH_SEND, hdev, send_count, features);
+
+	if (features[0] <= features[1]) {
 		err = mgmt_cmd_status(sk, hdev->id, MGMT_OP_MESH_SEND,
 							MGMT_STATUS_BUSY);
 		goto done;
