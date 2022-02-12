@@ -246,7 +246,7 @@ int __hci_cmd_sync_status_sk(struct hci_dev *hdev, u16 opcode, u32 plen,
 	skb = __hci_cmd_sync_sk(hdev, opcode, plen, param, event, timeout, sk);
 	if (IS_ERR(skb)) {
 		bt_dev_err(hdev, "Opcode 0x%4x failed: %ld", opcode,
-			   PTR_ERR(skb));
+				PTR_ERR(skb));
 		return PTR_ERR(skb);
 	}
 
@@ -1150,16 +1150,13 @@ int hci_mesh_send_sync(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 bdaddr_type,
 {
 	struct hci_cp_le_set_adv_data cp_data;
 	struct hci_cp_le_set_adv_param cp_param;
-	u8 own_addr_type, enable = 0x00;
+	u8 own_addr_type, enable;
 	int err;
 
 	memset(&cp_data, 0, sizeof(cp_data));
 	cp_data.length = len + 1;
 	cp_data.data[0] = len;
 	memcpy(cp_data.data + 1, data, len);
-
-	__hci_cmd_sync_status(hdev, HCI_OP_LE_SET_ADV_ENABLE,
-				     sizeof(enable), &enable, HCI_CMD_TIMEOUT);
 
 	hci_update_random_address_sync(hdev, true, false, &own_addr_type);
 
@@ -2114,6 +2111,7 @@ static int hci_passive_scan_sync(struct hci_dev *hdev)
 	u8 own_addr_type;
 	u8 filter_policy;
 	u16 window, interval;
+	u8 filter_dups = LE_SCAN_FILTER_DUP_ENABLE;
 	int err;
 
 	if (hdev->scanning_paused) {
@@ -2176,11 +2174,16 @@ static int hci_passive_scan_sync(struct hci_dev *hdev)
 		interval = hdev->le_scan_interval;
 	}
 
+	/* Disable all filtering for Mesh */
+	if (hci_dev_test_flag(hdev, HCI_MESH)) {
+		filter_policy = 0;
+		filter_dups = LE_SCAN_FILTER_DUP_DISABLE;
+	}
+
 	bt_dev_dbg(hdev, "LE passive scan with acceptlist = %d", filter_policy);
 
 	return hci_start_scan_sync(hdev, LE_SCAN_PASSIVE, interval, window,
-				   own_addr_type, filter_policy,
-				   LE_SCAN_FILTER_DUP_ENABLE);
+				   own_addr_type, filter_policy, filter_dups);
 }
 
 /* This function controls the passive scanning based on hdev->pend_le_conns

@@ -1036,7 +1036,7 @@ static void mesh_send_complete(struct hci_dev *hdev,
 	__u8 handle = (u8)((long) cmd->user_data);
 
 	mgmt_event(MGMT_EV_MESH_PACKET_CMPLT, hdev, &handle, sizeof(handle),
-								cmd->sk);
+								NULL);
 
 	mgmt_pending_remove(cmd);
 }
@@ -1046,7 +1046,6 @@ static int mesh_send_done_sync(struct hci_dev *hdev, void *data)
 	struct mgmt_pending_cmd *cmd;
 
 	hci_dev_clear_flag(hdev, HCI_MESH_SENDING);
-	bt_dev_dbg(hdev, "Send Mesh Packet Done");
 	hci_disable_advertising_sync(hdev);
 	cmd = pending_find(MGMT_OP_MESH_SEND, hdev);
 
@@ -2065,7 +2064,6 @@ static int set_le_sync(struct hci_dev *hdev, void *data)
 	u8 val = !!cp->val;
 	int err;
 
-	hci_dev_clear_flag(hdev, HCI_MESH);
 
 	if (!val) {
 		if (hci_dev_test_flag(hdev, HCI_LE_ADV))
@@ -2296,8 +2294,6 @@ static int mesh_send(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 	bool sending;
 	int err = 0;
 
-	bt_dev_dbg(hdev, "Send Mesh Packet Start...");
-
 	if (!hci_dev_test_flag(hdev, HCI_LE_ENABLED) ||
 					len <= MGMT_MESH_SEND_SIZE ||
 					len > (MGMT_MESH_SEND_SIZE + 29))
@@ -2316,8 +2312,7 @@ static int mesh_send(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 
 
 	sending = hci_dev_test_flag(hdev, HCI_MESH_SENDING);
-	if (sending)
-		cmd = mgmt_pending_add(sk, MGMT_OP_MESH_SEND, hdev, send, len);
+	cmd = mgmt_pending_add(sk, MGMT_OP_MESH_SEND, hdev, send, len);
 
 	if (!cmd)
 		err = -ENOMEM;
@@ -2326,6 +2321,7 @@ static int mesh_send(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 						mesh_send_start_complete);
 
 	if (err < 0) {
+		bt_dev_err(hdev, "Send Mesh Failed %d", err);
 		err = mgmt_cmd_status(sk, hdev->id, MGMT_OP_MESH_SEND,
 						MGMT_STATUS_FAILED);
 
