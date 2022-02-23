@@ -2222,29 +2222,35 @@ static int mesh_send_sync(struct hci_dev *hdev, void *data)
 static void send_count(struct mgmt_pending_cmd *cmd, void *data)
 {
 	u8 handle = (u8)((long)cmd->user_data);
-	u8 *features = data;
+	struct mgmt_rp_mesh_read_features *rp = data;
 
-	if (features[1] >= features[0])
+	if (rp->used_handles >= rp->max_handles)
 		return;
 
-	features[1]++;
-	features[1 + features[1]] = handle;
+	rp->handles[rp->used_handles++] = handle;
 }
 
 static int mesh_features(struct sock *sk, struct hci_dev *hdev,
 						void *data, u16 len)
 {
-	u8 features[MESH_HANDLES_MAX + 2] = {MESH_HANDLES_MAX, 0};
+	u8 features[MESH_HANDLES_MAX + 4];
+	struct mgmt_rp_mesh_read_features *rp = features;
 
-	if (!hci_dev_test_flag(hdev, HCI_LE_ENABLED))
+
+	if (!lmp_le_capable(hdev))
 		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_MESH_READ_FEATURES,
-				       MGMT_STATUS_REJECTED);
+				       MGMT_STATUS_NOT_SUPPORTED);
+
+	memset(features, 0, sizeof(features));
+	rp->index = cpu_to_le16(hdev->id);
+	if (hci_dev_test_flag(hdev, HCI_LE_ENABLED))
+		rp->max_handles = MESH_HANDLES_MAX;
 
 	hci_dev_lock(hdev);
 
-	mgmt_pending_foreach(MGMT_OP_MESH_SEND, hdev, send_count, features);
-	mgmt_cmd_complete(sk, hdev->id, MGMT_OP_MESH_READ_FEATURES, 0, features,
-			features[1] + 2);
+	mgmt_pending_foreach(MGMT_OP_MESH_SEND, hdev, send_count, rp);
+	mgmt_cmd_complete(sk, hdev->id, MGMT_OP_MESH_READ_FEATURES, 0, rp,
+			rp->used_handles + 4);
 
 	hci_dev_unlock(hdev);
 	return 0;
@@ -2290,7 +2296,8 @@ static int mesh_send(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 {
 	struct mgmt_pending_cmd *cmd;
 	struct mgmt_cp_mesh_send *send = data;
-	u8 features[MESH_HANDLES_MAX + 2] = {MESH_HANDLES_MAX, 0};
+	u8 features[MESH_HANDLES_MAX + 4];
+	struct mgmt_rp_mesh_read_features *rp = features;
 	bool sending;
 	int err = 0;
 
@@ -2302,9 +2309,12 @@ static int mesh_send(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 
 	hci_dev_lock(hdev);
 
-	mgmt_pending_foreach(MGMT_OP_MESH_SEND, hdev, send_count, features);
+	memset(features, 0, sizeof(features));
+	rp->max_handles = MESH_HANDLES_MAX;
 
-	if (features[0] <= features[1]) {
+	mgmt_pending_foreach(MGMT_OP_MESH_SEND, hdev, send_count, rp);
+
+	if (rp->max_handles <= rp->used_handles) {
 		err = mgmt_cmd_status(sk, hdev->id, MGMT_OP_MESH_SEND,
 							MGMT_STATUS_BUSY);
 		goto done;

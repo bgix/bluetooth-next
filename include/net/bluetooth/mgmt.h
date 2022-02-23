@@ -849,6 +849,12 @@ struct mgmt_cp_set_mesh {
 
 #define MGMT_OP_MESH_READ_FEATURES	0x0058
 #define MGMT_MESH_READ_FEATURES_SIZE	0
+struct mgmt_rp_mesh_read_features {
+	__le16	index;
+	__u8   max_handles;
+	__u8   used_handles;
+	__u8   handles[];
+} __packed;
 
 #define MGMT_OP_MESH_SEND		0x0059
 struct mgmt_cp_mesh_send {
